@@ -1,4 +1,4 @@
-name: Build B2G Core Binaries for Windows
+name: Build Firefox OS Windows Binary
 
 on:
   push:
@@ -6,15 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-core-windows:
-    # Runs natively on GitHub's official Ubuntu 22.04 host runner
+  build-windows:
     runs-on: ubuntu-22.04
     
     steps:
-      - name: Checkout Engine Source Code
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # Free up massive space natively on the host runner
+      # Free up space natively on the host runner for heavy source files
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@master
         with:
@@ -25,30 +24,17 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
-      # Install Python 3 development libraries and the MinGW cross-compiler
-      - name: Install Toolchains and Dependencies
+      # Install Python 3 requirements and standard cross-compiler binaries
+      - name: Install System Prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential zip unzip python3 python3-pip mingw-w64 g++-mingw-w64 binutils-mingw-w64
+          sudo apt-get install -y build-essential zip unzip python3 python3-pip python3-dev \
+            mingw-w64 g++-mingw-w64 binutils-mingw-w64 m4 ccache
 
-      # Locate mach and write the .mozconfig beside it
-      - name: Locate Mach and Configure Mozconfig
+      # Inject your configuration options directly into the workspace root
+      - name: Configure Mozilla Mozconfig
         run: |
-          MACH_PATH=$(find . -maxdepth 3 -name "mach" -not -path "*/.*" | head -n 1)
-          
-          if [ -z "$MACH_PATH" ]; then
-            echo "ERROR: Could not find any file named 'mach' anywhere in your repository!"
-            exit 1
-          fi
-          
-          MACH_PATH=$(echo "$MACH_PATH" | sed 's|^\./||')
-          TARGET_DIR=$(dirname "$MACH_PATH")
-          echo "Found mach inside folder: $TARGET_DIR"
-          
-          chmod +x "$MACH_PATH"
-          
-          # Write your specific .mozconfig next to mach
-          cat << 'EOF' > "$TARGET_DIR/.mozconfig"
+          cat << 'EOF' > .mozconfig
           # Target architecture (use i686-w64-mingw32 for 32-bit Windows)
           ac_add_options --target=x86_64-w64-mingw32
 
@@ -62,25 +48,35 @@ jobs:
           # Use internal/standard dependencies required for cross-compiling
           ac_add_options --with-toolchain-prefix=x86_64-w64-mingw32-
           EOF
-          
-          echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
-      # Run the build natively on the runner using Python 3
-      - name: Compile B2G Core Engine
+      # Explicitly make sure the workspace engine recognizes mach as a runnable script
+      - name: Fix Script Permissions
         run: |
-          cd ${{ env.TARGET_DIR }}
+          if [ -f "./mach" ]; then
+            chmod +x ./mach
+            echo "Mach confirmed at root level."
+          else
+            echo "ERROR: mach file was not detected at root. Current root files are:"
+            ls -la
+            exit 1
+          fi
+
+      # Run the compilation directly via the Python 3 interpreter
+      - name: Compile Windows Binaries
+        run: |
+          # Calling python3 explicitly ignores execution path system blocks
           python3 ./mach build
 
-      # Package the final output windows executable bundle
-      - name: Package Core Executable Files
+      # Package the true compiled Windows application components from the object tree
+      - name: Package Windows Binary Output
         run: |
-          mkdir -p b2g-core-windows
-          cp -r ${{ env.TARGET_DIR }}/obj-*/dist/bin/* b2g-core-windows/
-          zip -r b2g-windows-binaries.zip b2g-core-windows/
+          mkdir -p b2g-windows-binaries
+          cp -r obj-*/dist/bin/* b2g-windows-binaries/
+          zip -r finished-windows-build.zip b2g-windows-binaries/
 
-      # Upload final zip package to your browser view
+      # Save the final compiled application package to your GitHub browser tab
       - name: Upload Finished Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: B2G-Core-Windows-Binaries
-          path: b2g-windows-binaries.zip
+          name: B2G-Windows-Full-Build
+          path: finished-windows-build.zip
