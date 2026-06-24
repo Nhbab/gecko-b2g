@@ -7,12 +7,14 @@ on:
 
 jobs:
   build-core-windows:
-    runs-on: ubuntu-20.04
+    # Runs on the modern free cloud infrastructure
+    runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Engine Source Code
         uses: actions/checkout@v4
 
-      # Protect the compilation runner from running out of disk space
+      # Clear up space so the Docker compiler layer doesn't crash from lack of disk
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@master
         with:
@@ -22,19 +24,29 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      # FIXED: Install pure python2 and manually bind the global alias shortcut
-      - name: Install Toolchains and Dependencies
+      # Step 1: Create the Ubuntu 20.04 environment blueprint
+      - name: Create Legacy Compiler Container Blueprint
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential zip unzip
-          # Install the underlying engine package
-          sudo apt-get install -y python2
-          # Manually create the /usr/bin/python symlink link for ./mach
-          sudo ln -sf /usr/bin/python2 /usr/bin/python
-          # Install MinGW Windows compiler
-          sudo apt-get install -y mingw-w64 g++-mingw-w64 binutils-mingw-w64
+          cat << 'EOF' > Dockerfile.build
+          FROM ubuntu:20.04
+          ENV DEBIAN_FRONTEND=noninteractive
+          
+          # Install core compilers, Python 2 system engine, and MinGW
+          RUN apt-get update && apt-get install -y \
+              build-essential zip unzip python2 mingw-w64 g++-mingw-w64 binutils-mingw-w64 \
+              && rm -rf /var/lib/apt/lists/*
+              
+          # Manually establish the /usr/bin/python interpreter alias link for mach
+          RUN ln -sf /usr/bin/python2 /usr/bin/python
+          
+          WORKDIR /workspace
+          EOF
 
-      # Step 1: Write your exact .mozconfig file directly into the root workspace
+      # Step 2: Build the compiler container on the cloud machine
+      - name: Build Compiler Image
+        run: docker build -t b2g-compiler:latest -f Dockerfile.build .
+
+      # Step 3: Write your exact configuration parameters into the source tree
       - name: Configure Mozconfig
         run: |
           cat << 'EOF' > .mozconfig
@@ -52,19 +64,19 @@ jobs:
           ac_add_options --with-toolchain-prefix=x86_64-w64-mingw32-
           EOF
 
-      # Step 2: Trigger the compiler execution from the root workspace
+      # Step 4: Inject the source directory inside the container and compile via mach
       - name: Compile B2G Core Engine
         run: |
-          ./mach build
+          docker run --rm -v ${{ github.workspace }}:/workspace b2g-compiler:latest ./mach build
 
-      # Step 3: Package only the output compilation binaries from the root object directory
+      # Step 5: Extract and package the resulting compilation binaries
       - name: Package Core Executable Files
         run: |
           mkdir -p b2g-core-windows
           cp -r obj-*/dist/bin/* b2g-core-windows/
           zip -r b2g-windows-binaries.zip b2g-core-windows/
 
-      # Step 4: Upload the output zip file back to your GitHub UI
+      # Step 6: Upload the final zip bundle to your GitHub Actions run page
       - name: Upload Finished Binaries
         uses: actions/upload-artifact@v4
         with:
