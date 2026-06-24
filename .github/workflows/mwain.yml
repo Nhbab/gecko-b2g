@@ -23,50 +23,26 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      # Redirect Docker to use the freshly cleared disk space partition
-      - name: Redirect Docker Daemon Storage Location
-        run: |
-          sudo systemctl stop docker
-          sudo mkdir -p ${{ github.workspace }}/docker-space
-          echo '{
-            "data-root": "'${{ github.workspace }}'/docker-space"
-          }' | sudo tee /etc/docker/daemon.json
-          sudo systemctl start docker
-
-      # Step 1: Create the Ubuntu 20.04 environment blueprint
-      - name: Create Legacy Compiler Container Blueprint
-        run: |
-          cat << 'EOF' > Dockerfile.build
-          FROM ubuntu:20.04
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update && apt-get install -y \
-              build-essential zip unzip python2 mingw-w64 g++-mingw-w64 binutils-mingw-w64 \
-              && rm -rf /var/lib/apt/lists/*
-          RUN ln -sf /usr/bin/python2 /usr/bin/python
-          WORKDIR /workspace
-          EOF
-
-      # Step 2: Build the compiler container on the cloud machine
-      - name: Build Compiler Image
-        run: docker build -t b2g-compiler:latest -f Dockerfile.build .
-
-      # Step 3: Find mach, create .mozconfig relative to it, and fix permissions
+      # STEP 1: Find mach BEFORE docker-space is ever created to avoid permission blocks
       - name: Locate Mach and Configure Mozconfig
         run: |
-          # Automatically search for where the 'mach' file is stored in your repo
-          MACH_PATH=$(find . -name "mach" -maxdepth 3 | head -n 1)
+          # Safe root check that doesn't conflict with root-owned system mount layers
+          MACH_PATH=$(find . -maxdepth 3 -name "mach" -not -path "*/.*" | head -n 1)
           
           if [ -z "$MACH_PATH" ]; then
             echo "ERROR: Could not find any file named 'mach' anywhere in your repository!"
             exit 1
           fi
           
+          # Clean up the path format (removes leading ./)
+          MACH_PATH=$(echo "$MACH_PATH" | sed 's|^\./||')
+          
           # Extract the directory containing mach
           TARGET_DIR=$(dirname "$MACH_PATH")
           echo "Found mach inside folder: $TARGET_DIR"
           
           # Make sure linux has permissions to execute the mach script
-          chmod +x "$TARGET_DIR/mach"
+          chmod +x "$MACH_PATH"
           
           # Write the .mozconfig file directly alongside your mach script
           cat << 'EOF' > "$TARGET_DIR/.mozconfig"
@@ -87,7 +63,34 @@ jobs:
           # Save the detected folder path for the next compilation steps to use
           echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
-      # Step 4: Inject the directory inside the container and compile via mach
+      # STEP 2: Now it is safe to redirect Docker daemon to isolated storage
+      - name: Redirect Docker Daemon Storage Location
+        run: |
+          sudo systemctl stop docker
+          sudo mkdir -p ${{ github.workspace }}/docker-space
+          echo '{
+            "data-root": "'${{ github.workspace }}'/docker-space"
+          }' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+
+      # Step 3: Create the Ubuntu 20.04 environment blueprint
+      - name: Create Legacy Compiler Container Blueprint
+        run: |
+          cat << 'EOF' > Dockerfile.build
+          FROM ubuntu:20.04
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install -y \
+              build-essential zip unzip python2 mingw-w64 g++-mingw-w64 binutils-mingw-w64 \
+              && rm -rf /var/lib/apt/lists/*
+          RUN ln -sf /usr/bin/python2 /usr/bin/python
+          WORKDIR /workspace
+          EOF
+
+      # Step 4: Build the compiler container on the cloud machine
+      - name: Build Compiler Image
+        run: docker build -t b2g-compiler:latest -f Dockerfile.build .
+
+      # Step 5: Inject the directory inside the container and compile via mach
       - name: Compile B2G Core Engine
         run: |
           # Navigate to the folder containing mach inside the container environment
@@ -96,7 +99,7 @@ jobs:
             ./mach build
           "
 
-      # Step 5: Extract and package the resulting compilation binaries
+      # Step 6: Extract and package the resulting compilation binaries
       - name: Package Core Executable Files
         run: |
           mkdir -p b2g-core-windows
@@ -104,7 +107,7 @@ jobs:
           cp -r ${{ env.TARGET_DIR }}/obj-*/dist/bin/* b2g-core-windows/
           zip -r b2g-windows-binaries.zip b2g-core-windows/
 
-      # Step 6: Upload the final zip bundle to your GitHub Actions run page
+      # Step 7: Upload the final zip bundle to your GitHub Actions run page
       - name: Upload Finished Binaries
         uses: actions/upload-artifact@v4
         with:
