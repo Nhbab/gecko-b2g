@@ -1,0 +1,70 @@
+name: Build B2G Core Binaries for Windows
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-core-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Engine Source Code
+        uses: actions/checkout@v4
+
+      # Protect the compilation runner from running out of disk space
+      - name: Maximize Disk Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 5120
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      # Install the required legacy Python 2 runtime and Windows target cross-compiler
+      - name: Install Toolchains and Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zip unzip software-properties-common
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt-get update
+          sudo apt-get install -y python2.7 python-is-python2
+          sudo apt-get install -y mingw-w64 g++-mingw-w64 binutils-mingw-w64
+
+      # Step 1: Write your exact .mozconfig file directly into the root workspace
+      - name: Configure Mozconfig
+        run: |
+          cat << 'EOF' > .mozconfig
+          # Target architecture (use i686-w64-mingw32 for 32-bit Windows)
+          ac_add_options --target=x86_64-w64-mingw32
+
+          # Define application type as B2G Desktop
+          ac_add_options --enable-application=b2g
+
+          # Build optimizations
+          ac_add_options --enable-optimize
+          ac_add_options --disable-debug
+
+          # Use internal/standard dependencies required for cross-compiling
+          ac_add_options --with-toolchain-prefix=x86_64-w64-mingw32-
+          EOF
+
+      # Step 2: Trigger the compiler execution from the root workspace
+      - name: Compile B2G Core Engine
+        run: |
+          ./mach build
+
+      # Step 3: Package only the output compilation binaries from the root object directory
+      - name: Package Core Executable Files
+        run: |
+          mkdir -p b2g-core-windows
+          cp -r obj-*/dist/bin/* b2g-core-windows/
+          zip -r b2g-windows-binaries.zip b2g-core-windows/
+
+      # Step 4: Upload the output zip file back to your GitHub UI
+      - name: Upload Finished Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: B2G-Core-Windows-Binaries
+          path: b2g-windows-binaries.zip
