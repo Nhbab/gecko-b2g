@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-core-windows:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout Engine Source Code
         uses: actions/checkout@v4
@@ -22,14 +22,16 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      # Install the required legacy Python 2 runtime and Windows target cross-compiler
+      # FIXED: Install pure python2 and manually bind the global alias shortcut
       - name: Install Toolchains and Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential zip unzip software-properties-common
-          sudo add-apt-repository ppa:deadsnakes/ppa -y
-          sudo apt-get update
-          sudo apt-get install -y python2.7 python-is-python2
+          sudo apt-get install -y build-essential zip unzip
+          # Install the underlying engine package
+          sudo apt-get install -y python2
+          # Manually create the /usr/bin/python symlink link for ./mach
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+          # Install MinGW Windows compiler
           sudo apt-get install -y mingw-w64 g++-mingw-w64 binutils-mingw-w64
 
       # Step 1: Write your exact .mozconfig file directly into the root workspace
