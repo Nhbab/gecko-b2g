@@ -7,14 +7,13 @@ on:
 
 jobs:
   build-core-windows:
-    # Runs on the modern free cloud infrastructure
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout Engine Source Code
         uses: actions/checkout@v4
 
-      # Clear up space so the Docker compiler layer doesn't crash from lack of disk
+      # Free up massive space on the cloud disk
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@master
         with:
@@ -23,6 +22,20 @@ jobs:
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
+
+      # FIXED: Reroute Docker to use the freshly cleared disk space partition
+      - name: Redirect Docker Daemon Storage Location
+        run: |
+          sudo systemctl stop docker
+          sudo mkdir -p ${{ github.workspace }}/docker-space
+          
+          # Inject new storage path configuration
+          echo '{
+            "data-root": "'${{ github.workspace }}'/docker-space"
+          }' | sudo tee /etc/docker/daemon.json
+          
+          sudo systemctl start docker
+          docker info | grep "Docker Root Dir"
 
       # Step 1: Create the Ubuntu 20.04 environment blueprint
       - name: Create Legacy Compiler Container Blueprint
@@ -42,7 +55,7 @@ jobs:
           WORKDIR /workspace
           EOF
 
-      # Step 2: Build the compiler container on the cloud machine
+      # Step 2: Build the compiler container on the cloud machine (Now with infinite storage)
       - name: Build Compiler Image
         run: docker build -t b2g-compiler:latest -f Dockerfile.build .
 
