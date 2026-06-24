@@ -1,0 +1,81 @@
+name: Compile Pure Gaia GUI to Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-pure-exe:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Original Repository Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js Environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: '12'
+
+    - name: Fetch and Construct Standalone UI Pack
+      run: |
+        # Khởi tạo thư mục đóng gói phân phối giao diện thành phẩm
+        mkdir -p gaia-built-files
+        mkdir -p gaia-built-files/apps/homescreen
+
+        # Tạo tệp index.html trực tiếp theo phong cách Firefox OS gọn nhẹ nhất trên 1 dòng
+        cat << 'EOF' > gaia-built-files/apps/homescreen/index.html
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>Firefox OS</title><style>*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}body,html{width:100%;height:100%;overflow:hidden;background:#121212;color:#fff;}#d{width:100%;height:calc(100% - 48px);position:relative;background:linear-gradient(135deg,#111726,#070b12);}.s{position:absolute;top:25px;left:25px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:20px;width:calc(100% - 50px);}.c{display:flex;flex-direction:column;align-items:center;cursor:pointer;font-size:12px;text-align:center;}.i{font-size:32px;margin-bottom:6px;}#t{position:absolute;bottom:0;left:0;width:100%;height:48px;background:#1a1a1a;border-top:1px solid #333;display:flex;align-items:center;justify-content:space-between;padding:0 15px;}.g{display:flex;gap:10px;}#m{position:absolute;bottom:55px;left:15px;width:320px;height:400px;background:#1f1f1f;border:1px solid #333;border-radius:8px;padding:15px;box-shadow:0 5px 15px #000;}.search{width:100%;padding:8px;background:#2a2a2a;border:none;border-radius:4px;color:#fff;margin-bottom:15px;}.w{position:absolute;width:850px;height:550px;background:#1a1a1a;border-radius:8px;overflow:hidden;box-shadow:0 15px 35px #000;display:flex;flex-direction:column;border:1px solid #333;z-index:100;}.h{background:#262626;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:move;font-size:12px;color:#ccc;border-bottom:1px solid #333;}.btn-x{background:transparent;border:none;color:#ff453a;cursor:pointer;font-size:16px;}.n{background:#262626;padding:6px 10px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #333;}.inp{flex-grow:1;padding:5px 10px;background:#333;border:none;color:#fff;font-size:12px;border-radius:4px;outline:none;}.v{flex-grow:1;background:#fff;}iframe{width:100%;height:100%;border:none;}.gui-hidden{display:none!important;}#clk{font-size:13px;color:#cbd5e1;font-weight:500;}</style></head><body><div id="d"><div class="s"><div class="c" onclick="window.W('Browser','https://bing.com','🌐')"><div class="i">🌐</div>Browser</div><div class="c" onclick="window.W('Computer','https://wikipedia.org','💻')"><div class="i">💻</div>My Computer</div><div class="c" onclick="window.O()"><div class="i">🦊</div>Gaia Apps</div></div></div><div id="m" class="gui-hidden"><input type="text" class="search" placeholder="Search web..." onkeydown="if(event.key==='Enter'){window.W('Browser',this.value.includes('.')&&!this.value.includes(' ')?(this.value.includes('://')?this.value:'https://'+this.value):'https://bing.com/search?q='+encodeURIComponent(this.value),'🌐');this.value='';window.O();}"><div id="apps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;"></div></div><div id="t"><button style="width:36px;height:36px;background:#e66000;border:none;border-radius:50%;cursor:pointer;color:#fff;font-weight:bold;font-size:16px;display:flex;align-items:center;justify-content:center;" onclick="window.O()">🦊</button><div class="g" id="tabs"></div><div id="clk">12:00 PM</div></div><script>let z=100;setInterval(()=>{const n=new Date();document.getElementById('clk').innerText=n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:true});},1000);window.O=()=>{document.getElementById('m').classList.toggle('gui-hidden');};window.W=(t,u,i)=>{const d=document.getElementById('d');const w=document.createElement('div');w.className='w';w.style.top='60px';w.style.left='180px';w.style.zIndex=++z;w.innerHTML=`<div class="h" onmousedown="window.drg(event,this.parentElement)"><span>${i} ${t}</span><button class="btn-x" onclick="document.getElementById('t-'+${z}).remove();this.parentElement.parentElement.remove()">&times;</button></div>${t==='Browser'?`<div class="n"><input type="text" class="inp" value="${u}" onkeydown="if(event.key==='Enter'){const s=this.value.includes('.')&&!this.value.includes(' ')?(this.value.includes('://')?this.value:'https://'+this.value):'https://bing.com/search?q='+encodeURIComponent(this.value);this.value=s;this.parentElement.nextElementSibling.querySelector('iframe').src=s;}"></div>`:''}<div class="v"><iframe src="${u}" nwuseragent="Mozilla/5.0 Windows" nwfaketop></iframe></div>`;w.addEventListener('mousedown',()=>{w.style.zIndex=++z;});d.appendChild(w);const b=document.createElement('button');b.id=`t-${z}`;b.style='padding:4px 12px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;';b.innerText=t;b.onclick=()=>{w.style.zIndex=++z;};document.getElementById('tabs').appendChild(b);};window.drg=(e,w)=>{e.preventDefault();let p1=0,p2=0,p3=e.clientX,p4=e.clientY;document.onmouseup=()=>{document.onmouseup=null;document.onmousemove=null;};document.onmousemove=(e)=>{p1=p3-e.clientX;p2=p4-e.clientY;p3=e.clientX;p4=e.clientY;w.style.top=(w.offsetTop-p2)+"px";w.style.left=(w.offsetLeft-p1)+"px";};};if(typeof nw!=='undefined'){window.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&e.shiftKey)nw.App.quit();});}const appList=[{name:'YouTube',url:'https://youtube.com:'🎬'},{name:'Maps',url:'https://google.com:'🗺️'},{name:'Wikipedia',url:'https://wikipedia.org',icon:'📚'}];document.addEventListener('DOMContentLoaded',()=>{const g=document.getElementById('apps');if(g){appList.forEach(a=>{const k=document.createElement('div');k.className='c';k.onclick=()=>{window.W(a.name,a.url,a.icon);window.O();};k.innerHTML=`<div class="i">${a.icon}</div>${a.name}`;g.appendChild(k);});}});</script></body></html>
+        EOF
+
+    - name: Generate Monolithic Node.js Bridge Server
+      run: |
+        cat << 'EOF' > server-bridge.js
+        const http = require('http');
+        const fs = require('fs');
+        const path = require('path');
+        const { exec } = require('child_process');
+
+        const PORT = 3000;
+        const BASE_DIR = path.resolve(__dirname);
+
+        http.createServer((req, res) => {
+            let cleanUrl = req.url.split('?');
+            let filePath = path.join(BASE_DIR, cleanUrl === '/' ? '/apps/homescreen/index.html' : cleanUrl);
+            
+            fs.readFile(filePath, (err, content) => {
+                if (err) {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' });
+                    res.end('File Not Found');
+                } else {
+                    res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+                    res.end(content);
+                }
+            });
+        }).listen(PORT, '127.0.0.1', () => {
+            console.log(`Server listening on port ${PORT}`);
+            exec(`powershell -NoProfile -Command "Start-Process 'msedge.exe' -ArgumentList '--app=\\"http://127.0.0\\"', '--disable-web-security', '--no-first-run' -WindowStyle Maximized"`);
+        });
+        EOF
+
+    - name: Compile Server Engine to Standalone Windows EXE Binary
+      run: |
+        npm install -g pkg
+        pkg -t node12-win-x64 server-bridge.js --output gaia-built-files/GaiaBoughtOS.exe
+
+    - name: Generate Final Package Zip Archive
+      run: |
+        mkdir dist-pkg
+        cp -r gaia-built-files/* dist-pkg/
+        zip -r GaiaBought-GeckoB2G-Windows.zip dist-pkg/*
+
+    - name: Deploy Compiled EXE to GitHub Releases Section
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: gecko-b2g-v1.0.${{ github.run_number }}
+        name: GaiaBought Gecko-B2G Interface (Build ${{ github.run_number }})
+        files: GaiaBought-GeckoB2G-Windows.zip
