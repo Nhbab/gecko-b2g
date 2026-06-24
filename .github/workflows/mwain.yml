@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Engine Source Code
         uses: actions/checkout@v4
 
-      # Free up massive space on the cloud disk
+      # Free up space on the cloud disk
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@master
         with:
@@ -23,19 +23,15 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      # FIXED: Reroute Docker to use the freshly cleared disk space partition
+      # Redirect Docker to use the freshly cleared disk space partition
       - name: Redirect Docker Daemon Storage Location
         run: |
           sudo systemctl stop docker
           sudo mkdir -p ${{ github.workspace }}/docker-space
-          
-          # Inject new storage path configuration
           echo '{
             "data-root": "'${{ github.workspace }}'/docker-space"
           }' | sudo tee /etc/docker/daemon.json
-          
           sudo systemctl start docker
-          docker info | grep "Docker Root Dir"
 
       # Step 1: Create the Ubuntu 20.04 environment blueprint
       - name: Create Legacy Compiler Container Blueprint
@@ -43,26 +39,37 @@ jobs:
           cat << 'EOF' > Dockerfile.build
           FROM ubuntu:20.04
           ENV DEBIAN_FRONTEND=noninteractive
-          
-          # Install core compilers, Python 2 system engine, and MinGW
           RUN apt-get update && apt-get install -y \
               build-essential zip unzip python2 mingw-w64 g++-mingw-w64 binutils-mingw-w64 \
               && rm -rf /var/lib/apt/lists/*
-              
-          # Manually establish the /usr/bin/python interpreter alias link for mach
           RUN ln -sf /usr/bin/python2 /usr/bin/python
-          
           WORKDIR /workspace
           EOF
 
-      # Step 2: Build the compiler container on the cloud machine (Now with infinite storage)
+      # Step 2: Build the compiler container on the cloud machine
       - name: Build Compiler Image
         run: docker build -t b2g-compiler:latest -f Dockerfile.build .
 
-      # Step 3: Write your exact configuration parameters into the source tree
-      - name: Configure Mozconfig
+      # Step 3: Find mach, create .mozconfig relative to it, and fix permissions
+      - name: Locate Mach and Configure Mozconfig
         run: |
-          cat << 'EOF' > .mozconfig
+          # Automatically search for where the 'mach' file is stored in your repo
+          MACH_PATH=$(find . -name "mach" -maxdepth 3 | head -n 1)
+          
+          if [ -z "$MACH_PATH" ]; then
+            echo "ERROR: Could not find any file named 'mach' anywhere in your repository!"
+            exit 1
+          fi
+          
+          # Extract the directory containing mach
+          TARGET_DIR=$(dirname "$MACH_PATH")
+          echo "Found mach inside folder: $TARGET_DIR"
+          
+          # Make sure linux has permissions to execute the mach script
+          chmod +x "$TARGET_DIR/mach"
+          
+          # Write the .mozconfig file directly alongside your mach script
+          cat << 'EOF' > "$TARGET_DIR/.mozconfig"
           # Target architecture (use i686-w64-mingw32 for 32-bit Windows)
           ac_add_options --target=x86_64-w64-mingw32
 
@@ -76,17 +83,25 @@ jobs:
           # Use internal/standard dependencies required for cross-compiling
           ac_add_options --with-toolchain-prefix=x86_64-w64-mingw32-
           EOF
+          
+          # Save the detected folder path for the next compilation steps to use
+          echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
-      # Step 4: Inject the source directory inside the container and compile via mach
+      # Step 4: Inject the directory inside the container and compile via mach
       - name: Compile B2G Core Engine
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace b2g-compiler:latest ./mach build
+          # Navigate to the folder containing mach inside the container environment
+          docker run --rm -v ${{ github.workspace }}:/workspace b2g-compiler:latest bash -c "
+            cd /workspace/${{ env.TARGET_DIR }}
+            ./mach build
+          "
 
       # Step 5: Extract and package the resulting compilation binaries
       - name: Package Core Executable Files
         run: |
           mkdir -p b2g-core-windows
-          cp -r obj-*/dist/bin/* b2g-core-windows/
+          # Find the compiled output binaries based on our target folder directory
+          cp -r ${{ env.TARGET_DIR }}/obj-*/dist/bin/* b2g-core-windows/
           zip -r b2g-windows-binaries.zip b2g-core-windows/
 
       # Step 6: Upload the final zip bundle to your GitHub Actions run page
