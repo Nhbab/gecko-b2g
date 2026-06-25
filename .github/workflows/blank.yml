@@ -1,0 +1,81 @@
+name: Build B2G OS
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Cho phép nhấn nút build thủ công trên GitHub UI
+
+jobs:
+  build-b2g:
+    runs-on: ubuntu-latest
+    
+    # Sử dụng container Ubuntu 16.04 để đảm bảo tương thích công cụ build cũ của B2G
+    container:
+      image: ubuntu:16.04
+
+    steps:
+    # 1. Cài đặt các gói phụ thuộc cơ bản trong container
+    - name: Install system dependencies
+      run: |
+        apt-get update && apt-get install -y \
+          git bzip2 g++-multilib lib32z1-dev gcc-multilib \
+          lib32ncurses5-dev lib32readline-gplv2-dev zip unzip \
+          libxml2-utils curl basic-bsdtar bison libx11-dev libgl1-mesa-dev \
+          python python-dev openjdk-8-jdk wget
+          
+    # 2. Cài đặt công cụ `repo` của Google (bắt buộc cho manifest của B2G)
+    - name: Install Repo tool
+      run: |
+        mkdir -p ~/bin
+        curl https://googleapis.com > ~/bin/repo
+        chmod a+x ~/bin/repo
+        echo "PATH=$HOME/bin:$PATH" >> $GITHUB_ENV
+
+    # 3. Clone repo build chính của B2G
+    - name: Clone B2G Build Repository
+      run: |
+        git clone --branch emulator-m https://github.com b2g-workspace
+        
+    # 4. Clone fork mã nguồn gecko-b2g của bạn
+    - name: Checkout custom gecko-b2g fork
+      uses: actions/checkout@v4
+      with:
+        path: b2g-workspace/gecko-b2g
+
+    # 5. Cấu hình .userconfig để ép hệ thống dùng bản fork gecko-b2g local
+    - name: Configure custom Gecko path
+      run: |
+        cd b2g-workspace
+        echo "GECKO_PATH=$(pwd)/gecko-b2g" >> .userconfig
+        echo "GECKO_OBJDIR=$(pwd)/gecko-b2g/objdir-gonk" >> .userconfig
+        # Cấu hình Git ẩn danh để lệnh `repo` không bị lỗi danh tính
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+
+    # 6. Đồng bộ hóa mã nguồn (Sync Manifest)
+    - name: Config and Sync Source
+      run: |
+        cd b2g-workspace
+        export PATH=$HOME/bin:$PATH
+        # Chạy config để kéo các thành phần Gonk/Android nền tảng xuống
+        env REPO_INIT_FLAGS="--depth=1" \
+            REPO_SYNC_FLAGS="-j8 --force-sync" \
+            ./config.sh emulator-m
+
+    # 7. Tiến hành biên dịch (Build)
+    - name: Run Build Script
+      run: |
+        cd b2g-workspace
+        # Chạy build toàn bộ hệ thống
+        ./build.sh
+
+    # 8. Nén và tải file sản phẩm (Artifacts) lên GitHub
+    - name: Upload Build Artifacts
+      uses: actions/artifacts@v4
+      with:
+        name: b2g-emulator-images
+        path: |
+          b2g-workspace/out/target/product/generic/*.img
+          b2g-workspace/out/target/product/generic/*.zip
